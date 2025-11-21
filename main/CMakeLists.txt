@@ -1,2 +1,3 @@
-idf_component_register(SRCS "font_9x15.c" "ssd1322.c" "main.c"
-                    INCLUDE_DIRS ".")
+idf_component_register(SRCS "main.c"
+                    INCLUDE_DIRS "."
+                    REQUIRES esp_lcd_ssd1322 esp_lvgl_port)

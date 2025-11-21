@@ -1,0 +1,7 @@
+version: "1.0.0"
+description: ESP LCD SSD1322 driver component
+url: https://github.com/zulin/esp_lcd_ssd1322
+dependencies:
+  espressif/esp_lvgl_port: "^2.6.3"
+  idf:
+    version: ">=5.0"
