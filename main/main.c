@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
@@ -56,9 +57,33 @@ static void create_demo_ui(lv_disp_t *disp)
     lv_obj_align(counter_label, LV_ALIGN_CENTER, 0, 15);
 }
 
+static spi_device_handle_t g_spi;
+
+static void send_cmd(uint8_t c) {
+    gpio_set_level(PIN_NUM_DC, 0);
+    spi_transaction_t t = {.length = 8, .tx_buffer = &c};
+    spi_device_polling_transmit(g_spi, &t);
+}
+
+static void send_data(uint8_t d) {
+    gpio_set_level(PIN_NUM_DC, 1);
+    spi_transaction_t t = {.length = 8, .tx_buffer = &d};
+    spi_device_polling_transmit(g_spi, &t);
+}
+
 void app_main(void)
 {
-    ESP_LOGI(TAG, "SSD1322 OLED + LVGL Demo (esp_lvgl_port)");
+    ESP_LOGI(TAG, "SSD1322 Direct SPI Test");
+    
+    // 配置GPIO
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << PIN_NUM_RST) | (1ULL << PIN_NUM_DC),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&io_conf);
     
     // 配置SPI总线
     spi_bus_config_t buscfg = {
@@ -67,82 +92,74 @@ void app_main(void)
         .sclk_io_num = PIN_NUM_CLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = LCD_H_RES * LCD_V_RES / 2,
+        .max_transfer_sz = 4096,
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
     
-    // 配置LCD IO
-    esp_lcd_panel_io_handle_t io_handle = NULL;
-    esp_lcd_panel_io_spi_config_t io_config = {
-        .dc_gpio_num = PIN_NUM_DC,
-        .cs_gpio_num = PIN_NUM_CS,
-        .pclk_hz = LCD_PIXEL_CLOCK_HZ,
-        .lcd_cmd_bits = 8,
-        .lcd_param_bits = 8,
-        .spi_mode = 0,
-        .trans_queue_depth = 10,
+    // 添加SPI设备
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = LCD_PIXEL_CLOCK_HZ,
+        .mode = 0,
+        .spics_io_num = PIN_NUM_CS,
+        .queue_size = 7,
+        .flags = 0,
     };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
+    ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &g_spi));
     
-    // 配置LCD面板
-    esp_lcd_panel_handle_t panel_handle = NULL;
-    esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = PIN_NUM_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-        .bits_per_pixel = 4,
-    };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_ssd1322(io_handle, &panel_config, &panel_handle));
+    // 硬件复位
+    ESP_LOGI(TAG, "Hardware reset");
+    gpio_set_level(PIN_NUM_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_set_level(PIN_NUM_RST, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    gpio_set_level(PIN_NUM_RST, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
     
-    // 复位并初始化
-    ESP_LOGI(TAG, "Resetting panel...");
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
+    // 初始化序列（与原代码完全一致）
+    ESP_LOGI(TAG, "Initializing SSD1322...");
+    
+    send_cmd(0xFD); send_data(0x12);  // Unlock
+    send_cmd(0xAE);                     // Display OFF
+    send_cmd(0xB3); send_data(0x91);  // Clock divider
+    send_cmd(0xCA); send_data(0x3F);  // Multiplex ratio
+    send_cmd(0xA2); send_data(0x00);  // Display offset
+    send_cmd(0xA1); send_data(0x00);  // Start line
+    send_cmd(0xA0); send_data(0x14); send_data(0x11);  // Remap
+    send_cmd(0xAB); send_data(0x01);  // Function selection
+    send_cmd(0xB4); send_data(0xA0); send_data(0xFD);  // Display enhancement
+    send_cmd(0xC1); send_data(0x80);  // Contrast
+    send_cmd(0xC7); send_data(0x0F);  // Master contrast
+    send_cmd(0xB1); send_data(0xE2);  // Phase length
+    send_cmd(0xD1); send_data(0x82); send_data(0x20);  // Enhancement B
+    send_cmd(0xBB); send_data(0x1F);  // Precharge voltage
+    send_cmd(0xB6); send_data(0x08);  // Second precharge
+    send_cmd(0xBE); send_data(0x07);  // VCOMH
+    send_cmd(0xA6);                     // Normal display
+    send_cmd(0xAF);                     // Display ON
+    
     vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_LOGI(TAG, "Initialization complete");
     
-    ESP_LOGI(TAG, "Initializing panel...");
-    ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // 测试：填充全屏白色
+    ESP_LOGI(TAG, "Test: Fill white");
+    send_cmd(0x15); send_data(0x1C); send_data(0x5B);  // Column address
+    send_cmd(0x75); send_data(0x00); send_data(0x3F);  // Row address
+    send_cmd(0x5C);  // Write RAM
     
-    ESP_LOGI(TAG, "Turning display ON...");
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
-    vTaskDelay(pdMS_TO_TICKS(100));
+    gpio_set_level(PIN_NUM_DC, 1);
+    uint8_t white_data[128];
+    memset(white_data, 0xFF, sizeof(white_data));
     
-    ESP_LOGI(TAG, "SSD1322 initialized successfully");
-    
-    // 测试1: 全屏填充白色
-    ESP_LOGI(TAG, "Test 1: Fill white");
-    size_t test_buf_size = (LCD_H_RES / 2) * LCD_V_RES;
-    uint8_t *test_buffer = heap_caps_malloc(test_buf_size, MALLOC_CAP_DMA);
-    if (test_buffer) {
-        memset(test_buffer, 0xFF, test_buf_size); // 全白 (0xF = 最亮)
-        ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, LCD_H_RES - 1, LCD_V_RES - 1, test_buffer));
-        ESP_LOGI(TAG, "White screen displayed");
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        
-        // 测试2: 全屏填充黑色
-        ESP_LOGI(TAG, "Test 2: Fill black");
-        memset(test_buffer, 0x00, test_buf_size); // 全黑
-        ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, LCD_H_RES - 1, LCD_V_RES - 1, test_buffer));
-        ESP_LOGI(TAG, "Black screen displayed");
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        
-        // 测试3: 灰度渐变
-        ESP_LOGI(TAG, "Test 3: Grayscale gradient");
-        for (int y = 0; y < LCD_V_RES; y++) {
-            for (int x = 0; x < LCD_H_RES / 2; x++) {
-                uint8_t gray1 = (x * 2 * 15) / (LCD_H_RES - 1);
-                uint8_t gray2 = ((x * 2 + 1) * 15) / (LCD_H_RES - 1);
-                test_buffer[y * (LCD_H_RES / 2) + x] = (gray1 << 4) | gray2;
-            }
-        }
-        ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(panel_handle, 0, 0, LCD_H_RES - 1, LCD_V_RES - 1, test_buffer));
-        ESP_LOGI(TAG, "Gradient displayed");
-        
-        free(test_buffer);
+    for (int row = 0; row < 64; row++) {
+        spi_transaction_t t = {
+            .length = 128 * 8,
+            .tx_buffer = white_data
+        };
+        spi_device_polling_transmit(g_spi, &t);
     }
     
-    ESP_LOGI(TAG, "Test complete, entering main loop");
+    ESP_LOGI(TAG, "White screen sent");
     
-    // 主循环
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
