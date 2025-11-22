@@ -7,7 +7,7 @@
 | 引脚 | GPIO | 功能 |
 |------|------|------|
 | SCL  | IO3  | SPI时钟 |
-| SDA  | IO18 | SPI数据(MOSI) |
+| SDA  | IO12 | SPI数据(MOSI) |
 | RST  | IO10 | 复位 |
 | CS   | IO0  | 片选 |
 | DC   | IO1  | 数据/命令选择 |

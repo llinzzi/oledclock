@@ -13,13 +13,13 @@
 
 static const char *TAG = "MAIN";
 
-// GPIO配置
+// GPIO配置 - 按照README接线
 #define LCD_HOST       SPI2_HOST
-#define PIN_NUM_MOSI   18
-#define PIN_NUM_CLK    3
-#define PIN_NUM_CS     0
-#define PIN_NUM_DC     1
-#define PIN_NUM_RST    10
+#define PIN_NUM_MOSI   12  // IO18: SDA
+#define PIN_NUM_CLK    3   // IO3: SCL  
+#define PIN_NUM_CS     0   // IO0: CS
+#define PIN_NUM_DC     1   // IO1: DC
+#define PIN_NUM_RST    10  // IO10: RST
 
 #define LCD_H_RES      256
 #define LCD_V_RES      64
@@ -94,9 +94,17 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_lcd_new_panel_ssd1322(io_handle, &panel_config, &panel_handle));
     
     // 复位并初始化
+    ESP_LOGI(TAG, "Resetting panel...");
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    ESP_LOGI(TAG, "Initializing panel...");
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    ESP_LOGI(TAG, "Turning display ON...");
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
+    vTaskDelay(pdMS_TO_TICKS(100));
     
     ESP_LOGI(TAG, "SSD1322 initialized successfully");
     

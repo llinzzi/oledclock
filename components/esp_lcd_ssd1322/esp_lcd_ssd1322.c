@@ -150,16 +150,22 @@ static esp_err_t panel_ssd1322_init(esp_lcd_panel_t *panel)
     ssd1322_panel_t *ssd1322 = container_of(panel, ssd1322_panel_t, base);
     esp_lcd_panel_io_handle_t io = ssd1322->io;
     
+    ESP_LOGI(TAG, "Starting SSD1322 initialization sequence...");
+    
     // Unlock commands
+    ESP_LOGI(TAG, "Unlocking commands");
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_COMMAND_LOCK, (uint8_t[]) {0x12}, 1);
+    vTaskDelay(pdMS_TO_TICKS(10));
     
     // Display off
+    ESP_LOGI(TAG, "Display OFF");
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_DISPLAY_OFF, NULL, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
     
     // Set clock divider
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_CLOCK_DIVIDER, (uint8_t[]) {0x91}, 1);
     
-    // Set multiplex ratio
+    // Set multiplex ratio (duty = 1/64)
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_MULTIPLEX_RATIO, (uint8_t[]) {0x3F}, 1);
     
     // Set display offset
@@ -171,16 +177,16 @@ static esp_err_t panel_ssd1322_init(esp_lcd_panel_t *panel)
     // Set remap
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_REMAP, (uint8_t[]) {0x14, 0x11}, 2);
     
-    // Function selection
+    // Function selection (external VDD)
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_FUNCTION_SELECTION, (uint8_t[]) {0x01}, 1);
     
-    // Display enhancement
+    // Display enhancement A
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_DISPLAY_ENHANCEMENT, (uint8_t[]) {0xA0, 0xFD}, 2);
     
-    // Set contrast
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_CONTRAST, (uint8_t[]) {0x80}, 1);
+    // Set contrast current - 增加对比度到最大
+    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_CONTRAST, (uint8_t[]) {0xFF}, 1);
     
-    // Master contrast
+    // Master contrast current control - 增加主对比度
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_MASTER_CONTRAST, (uint8_t[]) {0x0F}, 1);
     
     // Set phase length
@@ -198,11 +204,29 @@ static esp_err_t panel_ssd1322_init(esp_lcd_panel_t *panel)
     // Set VCOMH
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_VCOMH, (uint8_t[]) {0x07}, 1);
     
-    // Normal display
+    // Normal display mode
+    ESP_LOGI(TAG, "Setting normal display mode");
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_NORMAL_DISPLAY, NULL, 0);
+    vTaskDelay(pdMS_TO_TICKS(10));
     
     // Display on
+    ESP_LOGI(TAG, "Display ON");
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_DISPLAY_ON, NULL, 0);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // 清空显示RAM - 填充全黑
+    ESP_LOGI(TAG, "Clearing display RAM");
+    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_COLUMN_ADDR, (uint8_t[]) {0x1C, 0x5B}, 2);
+    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_ROW_ADDR, (uint8_t[]) {0x00, 0x3F}, 2);
+    
+    // 发送全黑数据
+    uint8_t clear_data[128];
+    memset(clear_data, 0x00, sizeof(clear_data));
+    for (int i = 0; i < 64; i++) {
+        esp_lcd_panel_io_tx_color(io, SSD1322_CMD_WRITE_RAM, clear_data, sizeof(clear_data));
+    }
+    
+    ESP_LOGI(TAG, "SSD1322 initialization complete");
     
     return ESP_OK;
 }
