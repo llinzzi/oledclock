@@ -7,10 +7,9 @@
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_lvgl_port.h"
-#include "lvgl.h"
 
 static const char *TAG = "MAIN";
 
@@ -25,37 +24,6 @@ static const char *TAG = "MAIN";
 #define LCD_H_RES      256
 #define LCD_V_RES      64
 #define LCD_PIXEL_CLOCK_HZ (10 * 1000 * 1000)
-
-// 创建LVGL UI
-static void create_demo_ui(lv_disp_t *disp)
-{
-    lv_obj_t *scr = lv_disp_get_scr_act(disp);
-    
-    // 创建标题标签
-    lv_obj_t *label = lv_label_create(scr);
-    lv_label_set_text(label, "SSD1322 OLED");
-    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 5);
-    
-    // 创建进度条
-    lv_obj_t *bar = lv_bar_create(scr);
-    lv_obj_set_size(bar, 200, 10);
-    lv_obj_align(bar, LV_ALIGN_CENTER, 0, -5);
-    lv_bar_set_value(bar, 70, LV_ANIM_OFF);
-    
-    // 创建按钮
-    lv_obj_t *btn = lv_btn_create(scr);
-    lv_obj_set_size(btn, 100, 30);
-    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -10);
-    
-    lv_obj_t *btn_label = lv_label_create(btn);
-    lv_label_set_text(btn_label, "ESP-IDF");
-    lv_obj_center(btn_label);
-    
-    // 创建计数器标签
-    lv_obj_t *counter_label = lv_label_create(scr);
-    lv_label_set_text(counter_label, "Counter: 0");
-    lv_obj_align(counter_label, LV_ALIGN_CENTER, 0, 15);
-}
 
 static spi_device_handle_t g_spi;
 
@@ -73,7 +41,7 @@ static void send_data(uint8_t d) {
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "SSD1322 Direct SPI Test");
+    ESP_LOGI(TAG, "SSD1322 - Pure Direct SPI (Working Version)");
     
     // 配置GPIO
     gpio_config_t io_conf = {
@@ -102,7 +70,6 @@ void app_main(void)
         .mode = 0,
         .spics_io_num = PIN_NUM_CS,
         .queue_size = 7,
-        .flags = 0,
     };
     ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &g_spi));
     
@@ -115,50 +82,48 @@ void app_main(void)
     gpio_set_level(PIN_NUM_RST, 1);
     vTaskDelay(pdMS_TO_TICKS(10));
     
-    // 初始化序列（与原代码完全一致）
+    // 初始化序列
     ESP_LOGI(TAG, "Initializing SSD1322...");
     
-    send_cmd(0xFD); send_data(0x12);  // Unlock
-    send_cmd(0xAE);                     // Display OFF
-    send_cmd(0xB3); send_data(0x91);  // Clock divider
-    send_cmd(0xCA); send_data(0x3F);  // Multiplex ratio
-    send_cmd(0xA2); send_data(0x00);  // Display offset
-    send_cmd(0xA1); send_data(0x00);  // Start line
-    send_cmd(0xA0); send_data(0x14); send_data(0x11);  // Remap
-    send_cmd(0xAB); send_data(0x01);  // Function selection
-    send_cmd(0xB4); send_data(0xA0); send_data(0xFD);  // Display enhancement
-    send_cmd(0xC1); send_data(0x80);  // Contrast
-    send_cmd(0xC7); send_data(0x0F);  // Master contrast
-    send_cmd(0xB1); send_data(0xE2);  // Phase length
-    send_cmd(0xD1); send_data(0x82); send_data(0x20);  // Enhancement B
-    send_cmd(0xBB); send_data(0x1F);  // Precharge voltage
-    send_cmd(0xB6); send_data(0x08);  // Second precharge
-    send_cmd(0xBE); send_data(0x07);  // VCOMH
-    send_cmd(0xA6);                     // Normal display
-    send_cmd(0xAF);                     // Display ON
+    send_cmd(0xFD); send_data(0x12);
+    send_cmd(0xAE);
+    send_cmd(0xB3); send_data(0x91);
+    send_cmd(0xCA); send_data(0x3F);
+    send_cmd(0xA2); send_data(0x00);
+    send_cmd(0xA1); send_data(0x00);
+    send_cmd(0xA0); send_data(0x14); send_data(0x11);
+    send_cmd(0xAB); send_data(0x01);
+    send_cmd(0xB4); send_data(0xA0); send_data(0xFD);
+    send_cmd(0xC1); send_data(0x80);
+    send_cmd(0xC7); send_data(0x0F);
+    send_cmd(0xB1); send_data(0xE2);
+    send_cmd(0xD1); send_data(0x82); send_data(0x20);
+    send_cmd(0xBB); send_data(0x1F);
+    send_cmd(0xB6); send_data(0x08);
+    send_cmd(0xBE); send_data(0x07);
+    send_cmd(0xA6);
+    send_cmd(0xAF);
     
     vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_LOGI(TAG, "Initialization complete");
+    ESP_LOGI(TAG, "Init complete");
     
-    // 测试：填充全屏白色
-    ESP_LOGI(TAG, "Test: Fill white");
-    send_cmd(0x15); send_data(0x1C); send_data(0x5B);  // Column address
-    send_cmd(0x75); send_data(0x00); send_data(0x3F);  // Row address
-    send_cmd(0x5C);  // Write RAM
+    // 填充白色
+    ESP_LOGI(TAG, "Drawing white screen");
+    send_cmd(0x15); send_data(0x1C); send_data(0x5B);
+    send_cmd(0x75); send_data(0x00); send_data(0x3F);
+    send_cmd(0x5C);
     
     gpio_set_level(PIN_NUM_DC, 1);
-    uint8_t white_data[128];
-    memset(white_data, 0xFF, sizeof(white_data));
+    uint8_t white[128];
+    memset(white, 0xFF, sizeof(white));
     
     for (int row = 0; row < 64; row++) {
-        spi_transaction_t t = {
-            .length = 128 * 8,
-            .tx_buffer = white_data
-        };
+        spi_transaction_t t = {.length = 128 * 8, .tx_buffer = white};
         spi_device_polling_transmit(g_spi, &t);
     }
     
-    ESP_LOGI(TAG, "White screen sent");
+    ESP_LOGI(TAG, "White screen displayed - working!");
+    ESP_LOGI(TAG, "Now the problem is: why esp_lcd_panel_io doesn't work");
     
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));

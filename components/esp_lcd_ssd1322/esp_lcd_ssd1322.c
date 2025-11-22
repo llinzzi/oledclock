@@ -214,73 +214,7 @@ static esp_err_t panel_ssd1322_init(esp_lcd_panel_t *panel)
     esp_lcd_panel_io_tx_param(io, SSD1322_CMD_DISPLAY_ON, NULL, 0);
     vTaskDelay(pdMS_TO_TICKS(100));
     
-    // 测试1: 尝试反转显示模式
-    ESP_LOGI(TAG, "Test 1: Inverse display mode");
-    esp_lcd_panel_io_tx_param(io, 0xA7, NULL, 0); // Inverse display
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    
-    // 恢复正常
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_NORMAL_DISPLAY, NULL, 0);
-    vTaskDelay(pdMS_TO_TICKS(500));
-    
-    // 测试2: 全部像素点亮 (All pixels ON)
-    ESP_LOGI(TAG, "Test 2: All pixels ON command");
-    esp_lcd_panel_io_tx_param(io, 0xA5, NULL, 0); // Entire display ON
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    
-    // 恢复正常
-    ESP_LOGI(TAG, "Resume normal display");
-    esp_lcd_panel_io_tx_param(io, 0xA4, NULL, 0); // Resume to RAM content display
-    vTaskDelay(pdMS_TO_TICKS(500));
-    
-    // 测试3: 写入简单图案 - 垂直条纹
-    ESP_LOGI(TAG, "Test 3: Vertical stripes");
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_COLUMN_ADDR, (uint8_t[]) {0x1C, 0x5B}, 2);
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_ROW_ADDR, (uint8_t[]) {0x00, 0x3F}, 2);
-    
-    for (int row = 0; row < 64; row++) {
-        for (int col = 0; col < 64; col++) {
-            // 奇数列全亮，偶数列全暗
-            uint8_t pattern[2];
-            if (col % 2 == 0) {
-                pattern[0] = 0xFF; // 两个像素都亮
-                pattern[1] = 0xFF;
-            } else {
-                pattern[0] = 0x00; // 两个像素都暗
-                pattern[1] = 0x00;
-            }
-            esp_lcd_panel_io_tx_color(io, SSD1322_CMD_WRITE_RAM, pattern, 2);
-        }
-    }
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    
-    // 测试4: 水平条纹
-    ESP_LOGI(TAG, "Test 4: Horizontal stripes");
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_COLUMN_ADDR, (uint8_t[]) {0x1C, 0x5B}, 2);
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_ROW_ADDR, (uint8_t[]) {0x00, 0x3F}, 2);
-    
-    for (int row = 0; row < 64; row++) {
-        uint8_t val = (row % 2 == 0) ? 0xFF : 0x00;
-        uint8_t line_data[128];
-        memset(line_data, val, sizeof(line_data));
-        esp_lcd_panel_io_tx_color(io, SSD1322_CMD_WRITE_RAM, line_data, sizeof(line_data));
-    }
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    
-    // 测试5: 渐变灰度
-    ESP_LOGI(TAG, "Test 5: Grayscale gradient");
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_COLUMN_ADDR, (uint8_t[]) {0x1C, 0x5B}, 2);
-    esp_lcd_panel_io_tx_param(io, SSD1322_CMD_SET_ROW_ADDR, (uint8_t[]) {0x00, 0x3F}, 2);
-    
-    for (int row = 0; row < 64; row++) {
-        for (int col = 0; col < 128; col++) {
-            // 从左到右渐变: 0x00 -> 0xFF
-            uint8_t gray = (col * 255) / 127;
-            esp_lcd_panel_io_tx_color(io, SSD1322_CMD_WRITE_RAM, &gray, 1);
-        }
-    }
-    
-    ESP_LOGI(TAG, "SSD1322 initialization complete - all tests done");
+    ESP_LOGI(TAG, "SSD1322 initialization complete");
     
     return ESP_OK;
 }
