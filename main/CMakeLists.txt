@@ -1,3 +1,6 @@
 idf_component_register(SRCS "main.c"
+                            "ssd1322_driver.c"
+                            "lvgl_adapter.c"
+                            "ui.c"
                     INCLUDE_DIRS "."
-                    REQUIRES esp_lvgl_port)
+                    REQUIRES lvgl__lvgl driver)
