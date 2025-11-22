@@ -1,15 +1,13 @@
 #include <stdio.h>
 #include <string.h>
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_vendor.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_ssd1322.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_lvgl_port.h"
+#include "lvgl.h"
 
 static const char *TAG = "MAIN";
 
@@ -37,6 +35,65 @@ static void send_data(uint8_t d) {
     gpio_set_level(PIN_NUM_DC, 1);
     spi_transaction_t t = {.length = 8, .tx_buffer = &d};
     spi_device_polling_transmit(g_spi, &t);
+}
+
+// LVGL flush callback - L8格式转I4
+static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
+{
+    int x_start = area->x1;
+    int y_start = area->y1;
+    int x_end = area->x2;
+    int y_end = area->y2;
+    
+    ESP_LOGI(TAG, "LVGL flush: x=%d-%d, y=%d-%d", x_start, x_end, y_start, y_end);
+    
+    int width = x_end - x_start + 1;
+    int height = y_end - y_start + 1;
+    
+    // LVGL使用L8格式（每像素1字节），需要转换为I4（每字节2像素）
+    size_t i4_len = (width / 2) * height;
+    uint8_t *i4_data = heap_caps_malloc(i4_len, MALLOC_CAP_DMA);
+    
+    if (i4_data) {
+        // 转换L8到I4：每2个L8像素合并为1个I4字节
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x += 2) {
+                int src_idx = y * width + x;
+                int dst_idx = y * (width / 2) + (x / 2);
+                
+                uint8_t p0 = px_map[src_idx] >> 4;      // 第1个像素，取高4位
+                uint8_t p1 = px_map[src_idx + 1] >> 4;  // 第2个像素，取高4位
+                
+                i4_data[dst_idx] = (p0 << 4) | p1;  // 合并为1字节
+            }
+        }
+        
+        ESP_LOGI(TAG, "Converted L8->I4: first bytes 0x%02X 0x%02X (from 0x%02X 0x%02X)", 
+                 i4_data[0], i4_data[1], px_map[0], px_map[1]);
+        
+        // 设置显示区域
+        send_cmd(0x15);
+        send_data((x_start / 4) + 0x1C);
+        send_data((x_end / 4) + 0x1C);
+        
+        send_cmd(0x75);
+        send_data(y_start);
+        send_data(y_end);
+        
+        send_cmd(0x5C); // Write RAM
+        
+        gpio_set_level(PIN_NUM_DC, 1);
+        
+        spi_transaction_t t = {
+            .length = i4_len * 8,
+            .tx_buffer = i4_data
+        };
+        spi_device_polling_transmit(g_spi, &t);
+        
+        free(i4_data);
+    }
+    
+    lv_display_flush_ready(disp);
 }
 
 void app_main(void)
@@ -105,25 +162,58 @@ void app_main(void)
     send_cmd(0xAF);
     
     vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_LOGI(TAG, "Init complete");
+    ESP_LOGI(TAG, "SSD1322 Init complete");
     
-    // 填充白色
-    ESP_LOGI(TAG, "Drawing white screen");
-    send_cmd(0x15); send_data(0x1C); send_data(0x5B);
-    send_cmd(0x75); send_data(0x00); send_data(0x3F);
-    send_cmd(0x5C);
+    // 不填充白屏，直接让LVGL渲染
     
-    gpio_set_level(PIN_NUM_DC, 1);
-    uint8_t white[128];
-    memset(white, 0xFF, sizeof(white));
+    // 初始化LVGL
+    ESP_LOGI(TAG, "Initializing LVGL...");
     
-    for (int row = 0; row < 64; row++) {
-        spi_transaction_t t = {.length = 128 * 8, .tx_buffer = white};
-        spi_device_polling_transmit(g_spi, &t);
-    }
+    const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    ESP_ERROR_CHECK(lvgl_port_init(&lvgl_cfg));
     
-    ESP_LOGI(TAG, "White screen displayed - working!");
-    ESP_LOGI(TAG, "Now the problem is: why esp_lcd_panel_io doesn't work");
+    // 手动创建LVGL显示器（不使用panel_handle）
+    lv_display_t *disp = lv_display_create(LCD_H_RES, LCD_V_RES);
+    
+    // 设置颜色格式为L8（8位灰度，每像素1字节）
+    lv_display_set_color_format(disp, LV_COLOR_FORMAT_L8);
+    
+    // 分配缓冲区（L8格式：每像素1字节）
+    size_t buf_size = LCD_H_RES * LCD_V_RES;  // 8-bit, 1 pixel per byte
+    void *buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA);
+    lv_display_set_buffers(disp, buf1, NULL, buf_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    
+    // 设置flush回调
+    lv_display_set_flush_cb(disp, lvgl_flush_cb);
+    
+    // 创建LVGL UI - 灰度模式：0x0=黑, 0xF=白
+    lv_obj_t *scr = lv_scr_act();
+    
+    // 设置屏幕背景为白色 (灰度0xF)
+    lv_obj_set_style_bg_color(scr, lv_color_make(0xFF, 0xFF, 0xFF), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    
+    lv_obj_t *label = lv_label_create(scr);
+    lv_label_set_text(label, "SSD1322 OLED");
+    // 设置文字颜色为黑色 (灰度0x0)
+    lv_obj_set_style_text_color(label, lv_color_make(0x00, 0x00, 0x00), 0);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 5);
+    
+    lv_obj_t *bar = lv_bar_create(scr);
+    lv_obj_set_size(bar, 200, 10);
+    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 0);
+    // 设置进度条颜色
+    lv_obj_set_style_bg_color(bar, lv_color_make(0xCC, 0xCC, 0xCC), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_make(0x00, 0x00, 0x00), LV_PART_INDICATOR);
+    lv_bar_set_value(bar, 75, LV_ANIM_OFF);
+    
+    ESP_LOGI(TAG, "LVGL UI created");
+    
+    // 强制LVGL刷新显示
+    lv_obj_invalidate(scr);
+    lv_refr_now(disp);
+    
+    ESP_LOGI(TAG, "Display refreshed");
     
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
