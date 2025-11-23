@@ -24,6 +24,9 @@ void app_main(void)
     // 创建UI界面
     ESP_ERROR_CHECK(ui_wrapper_init());
     
+    // 等待UI加载
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
     // 强制刷新屏幕
     lv_refr_now(NULL);
     

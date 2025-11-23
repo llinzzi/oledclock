@@ -64,4 +64,7 @@ void tick_screen_by_id(enum ScreensEnum screenId) {
 void create_screens() {
     // 不使用默认主题，手动设置颜色
     create_screen_main();
+    
+    // 加载主屏幕
+    lv_scr_load(objects.main);
 }
