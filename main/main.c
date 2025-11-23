@@ -22,7 +22,7 @@ void app_main(void)
     vTaskDelay(pdMS_TO_TICKS(100));
     
     // 创建UI界面
-    ESP_ERROR_CHECK(ui_init());
+    ESP_ERROR_CHECK(ui_wrapper_init());
     
     // 强制刷新屏幕
     lv_refr_now(NULL);

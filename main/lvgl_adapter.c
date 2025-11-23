@@ -5,10 +5,12 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "ui/ui.h"  // eez studio UI
 
 static const char *TAG = "LVGL_ADAPTER";
 static lv_display_t *g_disp = NULL;
 static uint8_t *g_i4_buffer = NULL;  // 静态I4缓冲区
+static bool ui_initialized = false;  // UI初始化标志
 
 // 函数声明
 static void lvgl_task(void *arg);
@@ -110,8 +112,16 @@ static void lvgl_task(void *arg)
     ESP_LOGI(TAG, "Starting LVGL task");
     while (1) {
         lv_timer_handler();
+        if (ui_initialized) {
+            ui_tick();  // eez UI tick
+        }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+}
+
+void lvgl_adapter_set_ui_ready(void)
+{
+    ui_initialized = true;
 }
 
 lv_display_t* lvgl_adapter_get_display(void)
